@@ -1,0 +1,8 @@
+.env
+.mcp.json
+.webex_token.json
+.last_run
+knowledge.md
+__pycache__/
+*.pyc
+.venv/

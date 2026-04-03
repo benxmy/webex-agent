@@ -1,0 +1,8 @@
+{
+  "name": "webex-summary",
+  "version": "0.1.0",
+  "description": "Review, search, and summarize Webex chats and channels conversationally",
+  "author": {
+    "name": "Ben Myers"
+  }
+}
