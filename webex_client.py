@@ -128,6 +128,67 @@ class WebexClient:
 
         return result
 
+    def get_member_count(self, room_id: str) -> int:
+        """Get the number of members in a space. Returns 999 if access is denied."""
+        try:
+            response = self.client.get("/memberships", params={"roomId": room_id, "max": 1})
+            response.raise_for_status()
+        except httpx.HTTPStatusError:
+            return 999  # Treat inaccessible spaces as large (channel)
+        items = response.json().get("items", [])
+        if not items:
+            return 0
+        # Fetch up to 11 to distinguish small group from channel
+        try:
+            response = self.client.get("/memberships", params={"roomId": room_id, "max": 11})
+            response.raise_for_status()
+        except httpx.HTTPStatusError:
+            return 999
+        return len(response.json().get("items", []))
+
+    def has_unresponded_mentions(self, room_id: str, after: datetime) -> bool:
+        """Check if user was @mentioned in a space and hasn't responded after the mention."""
+        me = self.get_me()
+        my_id = me["id"]
+
+        # Get mentions of me in the lookback window
+        response = self.client.get("/messages", params={
+            "roomId": room_id, "max": 50, "mentionedPeople": "me"
+        })
+        response.raise_for_status()
+        mentions = response.json().get("items", [])
+
+        # Filter to lookback window
+        after_utc = after.astimezone(timezone.utc)
+        recent_mentions = []
+        for m in mentions:
+            msg_time = datetime.fromisoformat(m["created"].replace("Z", "+00:00"))
+            if msg_time >= after_utc:
+                recent_mentions.append(m)
+
+        if not recent_mentions:
+            return False
+
+        # Find the latest mention
+        latest_mention_time = max(
+            datetime.fromisoformat(m["created"].replace("Z", "+00:00"))
+            for m in recent_mentions
+        )
+
+        # Check if I posted anything after the latest mention
+        response = self.client.get("/messages", params={
+            "roomId": room_id, "max": 50, "personId": my_id
+        })
+        response.raise_for_status()
+        my_msgs = response.json().get("items", [])
+
+        for msg in my_msgs:
+            msg_time = datetime.fromisoformat(msg["created"].replace("Z", "+00:00"))
+            if msg_time > latest_mention_time:
+                return False  # I responded after the mention
+
+        return True  # Mentioned but haven't responded
+
     def send_message(self, room_id: str, text: str, markdown: str = "") -> dict:
         """Send a message to a space."""
         payload = {"roomId": room_id, "text": text}
