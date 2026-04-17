@@ -184,19 +184,48 @@ def deliver_email(summary: str, to_addr: str, subject: str):
     print(f"Summary emailed to {to_addr}")
 
 
+GROUP_CHAT_THRESHOLD = 10  # <=10 members = group chat, >10 = channel
+
+
 def find_my_relevant_spaces(webex: WebexClient, lookback: datetime, max_spaces: int = 20) -> list[dict]:
-    """Find spaces where user was mentioned or posted in during the lookback window."""
+    """Find relevant spaces based on type:
+    - DMs: always include if there's new activity
+    - Group chats (<=10 members): always include if there's new activity
+    - Channels (>10 members): only include if @mentioned and not responded
+    """
     all_spaces = webex.list_spaces(max_results=200)
 
     relevant_spaces = []
     total = len(all_spaces)
     for i, space in enumerate(all_spaces, 1):
-        print(f"  Checking activity ({i}/{total}): {space['title'][:40]}...", end="\r")
-        activity = webex.has_my_activity(space["id"], after=lookback)
-        if activity["posted"] or activity["mentioned"]:
-            relevant_spaces.append(space)
-            if len(relevant_spaces) >= max_spaces:
-                break
+        print(f"  Checking ({i}/{total}): {space['title'][:40]}...", end="\r")
+
+        space_type = space.get("type", "group")
+
+        if space_type == "direct":
+            # DMs: include if there are new messages
+            messages = webex.get_messages(space["id"], after=lookback, max_results=1)
+            if messages:
+                relevant_spaces.append(space)
+        else:
+            # Group space — check member count to distinguish chat vs channel
+            member_count = webex.get_member_count(space["id"])
+            if member_count <= GROUP_CHAT_THRESHOLD:
+                # Small group chat: include if there's new activity
+                messages = webex.get_messages(space["id"], after=lookback, max_results=1)
+                if messages:
+                    relevant_spaces.append(space)
+            else:
+                # Channel: include if @mentioned and haven't responded,
+                # OR if newly added in the last 24 hours (catch up on new channels)
+                if webex.has_unresponded_mentions(space["id"], after=lookback):
+                    relevant_spaces.append(space)
+                elif webex.is_newly_added(space["id"], within_hours=24):
+                    relevant_spaces.append(space)
+
+        if len(relevant_spaces) >= max_spaces:
+            break
+
     print()  # Clear the progress line
     return relevant_spaces
 

@@ -1,5 +1,5 @@
 import httpx
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 
@@ -188,6 +188,24 @@ class WebexClient:
                 return False  # I responded after the mention
 
         return True  # Mentioned but haven't responded
+
+    def is_newly_added(self, room_id: str, within_hours: int = 24) -> bool:
+        """Check if the authenticated user was added to a space within the last N hours."""
+        me = self.get_me()
+        my_id = me["id"]
+        try:
+            response = self.client.get("/memberships", params={
+                "roomId": room_id, "personId": my_id, "max": 1
+            })
+            response.raise_for_status()
+        except httpx.HTTPStatusError:
+            return False
+        items = response.json().get("items", [])
+        if not items:
+            return False
+        created = datetime.fromisoformat(items[0]["created"].replace("Z", "+00:00"))
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=within_hours)
+        return created >= cutoff
 
     def send_message(self, room_id: str, text: str, markdown: str = "") -> dict:
         """Send a message to a space."""

@@ -114,6 +114,16 @@ Examples:
 
 Always confirm what you're saving before writing it. Read back the rule and ask "Should I save this preference?"
 
+## Skills
+
+The following skills are available in `~/Projects/webex-agent/skills/`:
+
+- **weekly-retrospective** — Methodology for extracting weekly learnings into knowledge.md. Use when the user asks "what did I learn this week" or "run my weekly retrospective."
+- **decision-log** — Structured capture and querying of decisions from conversations. Use when triage surfaces "Decisions Made Without You" or when the user asks "what was decided about X." Stores entries in `decision-log.json`.
+- **meeting-debrief** — Extract structured debriefs from meeting conversations (decisions, action items, open debates). Use when the user asks to debrief a call or meeting.
+
+Read the relevant SKILL.md before executing these workflows.
+
 ## General Rules
 
 - Always state which space and time range you're analyzing

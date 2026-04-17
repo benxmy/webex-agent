@@ -9,9 +9,28 @@ set +a
 
 export PATH="/opt/homebrew/bin:/opt/homebrew/opt/python@3.12/bin:$PATH"
 
+# Attempt to refresh AWS credentials (non-interactive, uses cached browser session)
+duo-sso -profile claudecode -valid-session-threshold 7200 -chrome-persistent >> /tmp/webex-retro.log 2>&1 || true
+
 if [ -n "$1" ]; then
     export RETRO_LOOKBACK_DAYS="$1"
 fi
 
 cd "$(dirname "$0")/.."
-.venv/bin/python3.12 scripts/weekly_retro.py >> /tmp/webex-retro.log 2>&1
+if ! .venv/bin/python3.12 scripts/weekly_retro.py >> /tmp/webex-retro.log 2>&1; then
+    # If the script failed, try to notify via Webex (which uses separate OAuth, not AWS)
+    .venv/bin/python3.12 -c "
+import os, sys
+sys.path.insert(0, '.')
+sys.path.insert(0, 'servers')
+from oauth import get_valid_token
+from webex_client import WebexClient
+token = get_valid_token(os.environ.get('WEBEX_CLIENT_ID',''), os.environ.get('WEBEX_CLIENT_SECRET',''))
+if not token: sys.exit(1)
+webex = WebexClient(token)
+spaces = webex.list_spaces(max_results=200)
+target = [s for s in spaces if 'my webex summaries' in s['title'].lower()]
+if target:
+    webex.send_message(target[0]['id'], '⚠️ Weekly retro failed — likely expired AWS credentials. Run: duo-sso -profile claudecode', markdown='⚠️ **Weekly retro failed** — likely expired AWS credentials.\n\nRun: \`duo-sso -profile claudecode\`')
+" >> /tmp/webex-retro.log 2>&1
+fi
