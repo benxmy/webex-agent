@@ -102,7 +102,10 @@ def load_tracking_files():
         match = re.search(r"\*\*Email:\*\*\s*(\S+)", content)
         if match:
             email = match.group(1).lower()
-            files[email] = {"filename": fname, "content": content}
+            # Extract person's name from the # header line
+            name_match = re.search(r"^#\s+(.+?)(?:\s+1:1)?$", content, re.MULTILINE)
+            person_name = name_match.group(1).strip() if name_match else ""
+            files[email] = {"filename": fname, "content": content, "person_name": person_name}
 
     return files
 
@@ -264,6 +267,18 @@ def send_slack_dm(matched):
             pass
 
 
+def _meeting_title_matches_person(title, person_name):
+    """Check if a meeting title likely refers to a 1:1 with this person.
+
+    Matches if any part of the person's name (first or last) appears in the
+    meeting title, case-insensitive. E.g., "Ben / Adam" matches "Adam Greer",
+    "Greer 1:1" matches "Adam Greer".
+    """
+    title_lower = title.lower()
+    name_parts = person_name.lower().split()
+    return any(part in title_lower for part in name_parts if len(part) > 2)
+
+
 def main():
     token = load_token()
     if not token:
@@ -318,6 +333,13 @@ def main():
         for email in invitee_emails:
             if email in tracking:
                 info = tracking[email]
+
+                # Only trigger if the meeting title contains the person's name
+                # (indicates a 1:1 or small meeting with them, not a large group call)
+                person_name = info.get("person_name", "")
+                if person_name and not _meeting_title_matches_person(meeting_title, person_name):
+                    continue
+
                 entry = {
                     "meeting": meeting_title,
                     "start": meeting_start,

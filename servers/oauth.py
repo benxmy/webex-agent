@@ -13,7 +13,7 @@ import httpx
 
 TOKEN_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".webex_token.json")
 REDIRECT_URI = "http://localhost:8844/callback"
-SCOPES = "spark:messages_read spark:messages_write spark:rooms_read spark:people_read spark:recordings_read meeting:recordings_read meeting:schedules_read"
+SCOPES = "spark:messages_read spark:messages_write spark:rooms_read spark:rooms_write spark:memberships_write spark:people_read spark:recordings_read meeting:recordings_read meeting:schedules_read"
 
 _auth_code = None
 _server_done = threading.Event()

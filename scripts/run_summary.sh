@@ -12,6 +12,8 @@ export PATH="/opt/homebrew/bin:/opt/homebrew/opt/python@3.12/bin:$PATH"
 # Attempt to refresh AWS credentials (non-interactive, uses cached browser session)
 duo-sso -profile claudecode -valid-session-threshold 7200 -chrome-persistent >> /tmp/webex-summary.log 2>&1 || true
 
+export SUMMARY_DEBUG=1
+
 if [ -n "$1" ]; then
     export SUMMARY_LOOKBACK_H="$1"
 fi

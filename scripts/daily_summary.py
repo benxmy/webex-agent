@@ -184,14 +184,27 @@ def deliver_email(summary: str, to_addr: str, subject: str):
     print(f"Summary emailed to {to_addr}")
 
 
-GROUP_CHAT_THRESHOLD = 10  # <=10 members = group chat, >10 = channel
+import re
+
+# Heuristic: Webex auto-names group chats as "Name Name, Name Name" (comma-separated full names)
+_GROUP_CHAT_PATTERN = re.compile(r'^[A-Z]\w+(?: [A-Z]\w+)+(, [A-Z]\w+(?: [A-Z]\w+)+)+$')
+
+
+def _is_group_chat(space: dict) -> bool:
+    """Determine if a space is a small group chat vs a channel.
+
+    Uses title pattern: group chats auto-named by Webex look like
+    "Di Yin Lu, Adam Greer" (comma-separated full names with a comma).
+    """
+    title = space.get("title", "")
+    return bool(_GROUP_CHAT_PATTERN.match(title))
 
 
 def find_my_relevant_spaces(webex: WebexClient, lookback: datetime, max_spaces: int = 20) -> list[dict]:
     """Find relevant spaces based on type:
     - DMs: always include if there's new activity
-    - Group chats (<=10 members): always include if there's new activity
-    - Channels (>10 members): only include if @mentioned and not responded
+    - Group chats (name-pattern): always include if there's new activity
+    - Channels: only include if @mentioned and not responded
     """
     all_spaces = webex.list_spaces(max_results=200)
 
@@ -207,21 +220,19 @@ def find_my_relevant_spaces(webex: WebexClient, lookback: datetime, max_spaces: 
             messages = webex.get_messages(space["id"], after=lookback, max_results=1)
             if messages:
                 relevant_spaces.append(space)
+        elif _is_group_chat(space):
+            # Group chat (named after participants): include if there's new activity
+            messages = webex.get_messages(space["id"], after=lookback, max_results=1)
+            if messages:
+                relevant_spaces.append(space)
         else:
-            # Group space — check member count to distinguish chat vs channel
-            member_count = webex.get_member_count(space["id"])
-            if member_count <= GROUP_CHAT_THRESHOLD:
-                # Small group chat: include if there's new activity
-                messages = webex.get_messages(space["id"], after=lookback, max_results=1)
-                if messages:
-                    relevant_spaces.append(space)
-            else:
-                # Channel: include if @mentioned and haven't responded,
-                # OR if newly added in the last 24 hours (catch up on new channels)
-                if webex.has_unresponded_mentions(space["id"], after=lookback):
-                    relevant_spaces.append(space)
-                elif webex.is_newly_added(space["id"], within_hours=24):
-                    relevant_spaces.append(space)
+            # Channel: only include if @mentioned or newly added
+            if webex.has_unresponded_mentions(space["id"], after=lookback):
+                relevant_spaces.append(space)
+            elif webex.is_newly_added(space["id"], within_hours=24):
+                relevant_spaces.append(space)
+            elif os.environ.get("SUMMARY_DEBUG"):
+                print(f"    [debug] channel '{space['title'][:40]}' — no mentions/new")
 
         if len(relevant_spaces) >= max_spaces:
             break

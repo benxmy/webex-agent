@@ -129,12 +129,12 @@ class WebexClient:
         return result
 
     def get_member_count(self, room_id: str) -> int:
-        """Get the number of members in a space. Returns 999 if access is denied."""
+        """Get the number of members in a space. Returns -1 if access is denied (caller decides)."""
         try:
             response = self.client.get("/memberships", params={"roomId": room_id, "max": 1})
             response.raise_for_status()
         except httpx.HTTPStatusError:
-            return 999  # Treat inaccessible spaces as large (channel)
+            return -1  # Caller should treat as unknown and include if active
         items = response.json().get("items", [])
         if not items:
             return 0
