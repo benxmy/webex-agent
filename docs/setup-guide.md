@@ -82,6 +82,7 @@ You have two options. **OAuth is recommended** — personal tokens expire every 
 4. Add them to your `.env` file (see step 4 below)
 5. Run the OAuth flow to authorize:
    ```bash
+   set -a && source .env && set +a
    python servers/oauth.py
    ```
    This opens your browser for Webex login. After you authorize, tokens are saved to `.webex_token.json` and auto-refresh on each use.
@@ -127,11 +128,7 @@ AWS_PROFILE=your_aws_profile
 
 From the webex-agent directory:
 
-```bash
-claude plugin add .
-```
-
-Or add the project path to your Claude Code settings manually. The `.mcp.json` file in the project root auto-configures the MCP server when Claude loads the plugin.
+The project includes a `.mcp.json` that auto-configures the MCP server. To use it, add the project directory to your Claude Code settings as a project directory, or copy `.mcp.json` into your own project's root.
 
 ### 6. Test it
 

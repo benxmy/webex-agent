@@ -46,7 +46,7 @@ Add the plugin directory to your Claude Code project or install it as a plugin. 
 ### 4. Authenticate with Webex
 
 ```bash
-source .env
+set -a && source .env && set +a
 python servers/oauth.py
 ```
 
@@ -66,7 +66,7 @@ Open Claude Code and ask:
 
 1. Create a Webex Integration at [developer.webex.com](https://developer.webex.com/my-apps/new/integration)
 2. Set the redirect URI to `http://localhost:8844/callback`
-3. Request these scopes: `spark:messages_read`, `spark:messages_write`, `spark:rooms_read`, `spark:people_read`, `meeting:schedules_read`
+3. Request these scopes: `spark:messages_read`, `spark:messages_write`, `spark:rooms_read`, `spark:rooms_write`, `spark:memberships_write`, `spark:people_read`, `spark:recordings_read`, `meeting:recordings_read`, `meeting:schedules_read`
 4. Add to your `.env`:
 
 ```
