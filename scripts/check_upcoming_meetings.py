@@ -26,6 +26,9 @@ HISTORY_LOOKBACK_DAYS = 14
 MEETINGS_DIR = os.path.expanduser(
     "~/.claude/projects/-Users-benmyers/memory/meetings"
 )
+NOTES_DIR = os.path.expanduser(
+    "~/.claude/projects/-Users-benmyers/memory/notes"
+)
 TOKEN_FILE = os.path.expanduser("~/Projects/webex-agent/.webex_token.json")
 SLACK_ENV_FILE = os.path.expanduser("~/Projects/claude-remote-slack/.env")
 SLACK_USER_ID = "U0ATG4ZAHPE"
@@ -267,6 +270,120 @@ def send_slack_dm(matched):
             pass
 
 
+def load_todays_notes():
+    """Load notes from today's date in the notes directory."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    notes = []
+    if not os.path.isdir(NOTES_DIR):
+        return notes
+
+    for fname in os.listdir(NOTES_DIR):
+        if not fname.startswith(today) or not fname.endswith(".md"):
+            continue
+        fpath = os.path.join(NOTES_DIR, fname)
+        with open(fpath) as f:
+            content = f.read()
+
+        # Extract title from first line
+        title = ""
+        for line in content.splitlines():
+            if line.startswith("# "):
+                title = line[2:].strip()
+                break
+
+        notes.append({
+            "filename": fname,
+            "filepath": fpath,
+            "title": title,
+            "content": content,
+        })
+
+    return notes
+
+
+def _note_matches_meeting(note_title, meeting_title):
+    """Check if a note title fuzzy-matches a meeting subject.
+
+    Tokenizes both into words, ignores common filler words, and checks
+    if enough note words appear in the meeting title.
+    """
+    filler = {"the", "a", "an", "and", "or", "of", "for", "in", "on", "to",
+              "with", "is", "at", "by", "from", "-", "—", "weekly", "biweekly",
+              "monthly", "daily", "sync", "wkgrp", "meeting", "call"}
+    note_words = {w.lower() for w in re.split(r'[\s\-—/]+', note_title) if len(w) > 1}
+    note_words -= filler
+    if not note_words:
+        return False
+
+    meeting_lower = meeting_title.lower()
+    matches = sum(1 for w in note_words if w in meeting_lower)
+    return matches >= len(note_words) * 0.5 and matches >= 2
+
+
+def _send_notes_slack(matched_notes):
+    """Send matched meeting notes as Slack DMs."""
+    slack_token = load_slack_token()
+    if not slack_token:
+        return
+
+    # Open DM channel
+    open_data = json.dumps({"users": SLACK_USER_ID}).encode()
+    req = urllib.request.Request(
+        "https://slack.com/api/conversations.open",
+        data=open_data,
+        headers={
+            "Authorization": f"Bearer {slack_token}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            result = json.loads(resp.read())
+        if not result.get("ok"):
+            return
+        channel_id = result["channel"]["id"]
+    except (urllib.error.URLError, OSError, KeyError):
+        return
+
+    for m in matched_notes:
+        # Convert markdown to Slack mrkdwn
+        slack_content = m["content"]
+        slack_content = re.sub(r"^# (.+)$", r"*\1*", slack_content, flags=re.MULTILINE)
+        slack_content = re.sub(r"^## (.+)$", r"*\1*", slack_content, flags=re.MULTILINE)
+        slack_content = re.sub(r"^### (.+)$", r"*\1*", slack_content, flags=re.MULTILINE)
+        slack_content = re.sub(r"\*\*(.+?)\*\*", r"*\1*", slack_content)
+
+        # Parse start time for display
+        start_time = ""
+        if m.get("start"):
+            try:
+                dt = datetime.fromisoformat(m["start"].replace("Z", "+00:00"))
+                start_time = dt.strftime("%-I:%M %p")
+            except (ValueError, AttributeError):
+                start_time = m["start"]
+
+        text = f":memo: *Meeting prep — {m['meeting']}* ({start_time})\n\n{slack_content}"
+
+        msg_data = json.dumps({
+            "channel": channel_id,
+            "text": text,
+            "unfurl_links": False,
+        }).encode()
+        req = urllib.request.Request(
+            "https://slack.com/api/chat.postMessage",
+            data=msg_data,
+            headers={
+                "Authorization": f"Bearer {slack_token}",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10):
+                pass
+        except (urllib.error.URLError, OSError):
+            pass
+
+
 def _meeting_title_matches_person(title, person_name):
     """Check if a meeting title likely refers to a 1:1 with this person.
 
@@ -362,7 +479,28 @@ def main():
 
                 matched.append(entry)
 
-    if not matched:
+    # Also check today's notes against upcoming meeting titles
+    todays_notes = load_todays_notes()
+    matched_notes = []
+    for meeting in meetings:
+        meeting_title = meeting.get("title", "Untitled")
+        meeting_start = meeting.get("start", "")
+        for note in todays_notes:
+            if _note_matches_meeting(note["title"], meeting_title):
+                matched_notes.append({
+                    "meeting": meeting_title,
+                    "start": meeting_start,
+                    "file": note["filename"],
+                    "filepath": note["filepath"],
+                    "title": note["title"],
+                    "content": note["content"],
+                })
+
+    # Send matched notes via Slack
+    if matched_notes:
+        _send_notes_slack(matched_notes)
+
+    if not matched and not matched_notes:
         print("{}")
         return
 
@@ -375,6 +513,12 @@ def main():
         if m.get("history_summary"):
             parts.append(f"\nRecent Webex conversation summary with {m['email']}:")
             parts.append(m["history_summary"])
+        parts.append("---")
+
+    for m in matched_notes:
+        parts.append(f"\nMeeting: {m['meeting']} (starts {m['start']})")
+        parts.append(f"Note: {m['file']}")
+        parts.append(m["content"])
         parts.append("---")
 
     context = "\n".join(parts)

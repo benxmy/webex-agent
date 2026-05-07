@@ -37,6 +37,15 @@ class WebexClient:
         spaces.extend(data.get("items", []))
         return spaces
 
+    def list_spaces_by_created(self, max_results: int = 20, space_type: Optional[str] = None) -> list[dict]:
+        """List spaces sorted by creation date (newest first). Catches new DMs/groups."""
+        params = {"max": min(max_results, 1000), "sortBy": "created"}
+        if space_type:
+            params["type"] = space_type
+        response = self.client.get("/rooms", params=params)
+        response.raise_for_status()
+        return response.json().get("items", [])
+
     def get_messages(
         self,
         room_id: str,

@@ -200,45 +200,134 @@ def _is_group_chat(space: dict) -> bool:
     return bool(_GROUP_CHAT_PATTERN.match(title))
 
 
+def _parse_space_lists(preferences: str) -> tuple[set[str], set[str]]:
+    """Parse 'Always Scan' and 'Never Scan' space names from preferences.md."""
+    always_scan = set()
+    never_scan = set()
+    current_section = None
+
+    for line in preferences.split("\n"):
+        stripped = line.strip()
+        lower = stripped.lower()
+
+        # Detect sections
+        if lower.startswith("## always scan"):
+            current_section = "always"
+            continue
+        elif lower.startswith("## never scan"):
+            current_section = "never"
+            continue
+        elif stripped.startswith("## "):
+            current_section = None
+            continue
+
+        # Skip comments, sub-headers, and blank lines
+        if not stripped or stripped.startswith("<!--") or stripped.startswith("###"):
+            continue
+
+        # Parse list items
+        if stripped.startswith("- ") and current_section:
+            name = stripped[2:].strip()
+            if name:
+                if current_section == "always":
+                    always_scan.add(name.lower())
+                elif current_section == "never":
+                    never_scan.add(name.lower())
+
+    return always_scan, never_scan
+
+
 def find_my_relevant_spaces(webex: WebexClient, lookback: datetime, max_spaces: int = 20) -> list[dict]:
-    """Find relevant spaces based on type:
-    - DMs: always include if there's new activity
-    - Group chats (name-pattern): always include if there's new activity
-    - Channels: only include if @mentioned and not responded
+    """Find relevant spaces using an optimized approach:
+
+    1. Fetch room list (sorted by lastActivity) — single API call
+    2. Filter client-side by lastActivity timestamp — zero API calls for stale spaces
+    3. For active spaces:
+       - DMs/group chats/Always Scan: include directly (activity confirmed by timestamp)
+       - Other channels: check mentionedPeople=me (1 API call each)
+    4. Also check for newly-created spaces (catches new DMs/groups)
     """
+    preferences = load_preferences()
+    always_scan, never_scan = _parse_space_lists(preferences)
+    debug = os.environ.get("SUMMARY_DEBUG")
+    lookback_utc = lookback.astimezone(timezone.utc) if lookback.tzinfo else lookback.replace(tzinfo=timezone.utc)
+
+    # Single API call to get spaces sorted by last activity
     all_spaces = webex.list_spaces(max_results=200)
 
+    # Also get recently-created spaces to catch new DMs/groups we were added to
+    newly_created = webex.list_spaces_by_created(max_results=20)
+    # Merge any new spaces not already in the main list
+    seen_ids = {s["id"] for s in all_spaces}
+    for s in newly_created:
+        if s["id"] not in seen_ids:
+            all_spaces.append(s)
+            seen_ids.add(s["id"])
+
+    # Client-side filter: skip spaces with no activity in lookback window
+    active_spaces = []
+    skipped_stale = 0
+    for space in all_spaces:
+        last_activity = space.get("lastActivity", "")
+        if last_activity:
+            activity_time = datetime.fromisoformat(last_activity.replace("Z", "+00:00"))
+            if activity_time < lookback_utc:
+                skipped_stale += 1
+                continue
+        active_spaces.append(space)
+
+    if debug:
+        print(f"    [debug] {len(all_spaces)} spaces fetched, {skipped_stale} skipped (stale), {len(active_spaces)} active")
+
     relevant_spaces = []
-    total = len(all_spaces)
-    for i, space in enumerate(all_spaces, 1):
-        print(f"  Checking ({i}/{total}): {space['title'][:40]}...", end="\r")
+    total = len(active_spaces)
+    for i, space in enumerate(active_spaces, 1):
+        title = space.get("title", "")
+        title_lower = title.lower()
+        print(f"  Checking ({i}/{total}): {title[:40]}...", end="\r")
+
+        # Never Scan: skip entirely
+        if title_lower in never_scan:
+            if debug:
+                print(f"    [debug] skipping '{title[:40]}' — in Never Scan")
+            continue
 
         space_type = space.get("type", "group")
 
-        if space_type == "direct":
-            # DMs: include if there are new messages
-            messages = webex.get_messages(space["id"], after=lookback, max_results=1)
-            if messages:
-                relevant_spaces.append(space)
-        elif _is_group_chat(space):
-            # Group chat (named after participants): include if there's new activity
-            messages = webex.get_messages(space["id"], after=lookback, max_results=1)
-            if messages:
-                relevant_spaces.append(space)
+        if space_type == "direct" or _is_group_chat(space) or title_lower in always_scan:
+            # DMs, group chats, and Always Scan channels: include directly
+            # (lastActivity already confirmed they have recent activity)
+            relevant_spaces.append(space)
+            if debug and title_lower in always_scan:
+                print(f"    [debug] always-scan '{title[:40]}' — has activity")
         else:
-            # Channel: only include if @mentioned or newly added
-            if webex.has_unresponded_mentions(space["id"], after=lookback):
+            # Other channels: only include if @mentioned (single API call)
+            if _has_mentions_in_window(webex, space["id"], lookback_utc):
                 relevant_spaces.append(space)
-            elif webex.is_newly_added(space["id"], within_hours=24):
-                relevant_spaces.append(space)
-            elif os.environ.get("SUMMARY_DEBUG"):
-                print(f"    [debug] channel '{space['title'][:40]}' — no mentions/new")
+            elif debug:
+                print(f"    [debug] channel '{title[:40]}' — no mentions")
 
         if len(relevant_spaces) >= max_spaces:
             break
 
     print()  # Clear the progress line
     return relevant_spaces
+
+
+def _has_mentions_in_window(webex: WebexClient, room_id: str, after_utc: datetime) -> bool:
+    """Check if user was mentioned in a space within the lookback window. Single API call."""
+    try:
+        response = webex.client.get("/messages", params={
+            "roomId": room_id, "mentionedPeople": "me", "max": 1
+        })
+        response.raise_for_status()
+    except Exception:
+        return False
+    mentions = response.json().get("items", [])
+    if not mentions:
+        return False
+    msg_time = datetime.fromisoformat(mentions[0]["created"].replace("Z", "+00:00"))
+    return msg_time >= after_utc
 
 
 def main():
@@ -335,6 +424,14 @@ def main():
         parts.append("## ℹ️ FYI\n" + "\n".join(fyi_parts))
 
     full_summary = "\n\n---\n\n".join(parts)
+
+    # Always save locally for other tools to read (morning-coffee, hub, etc.)
+    local_output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output")
+    os.makedirs(local_output_dir, exist_ok=True)
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    local_path = os.path.join(local_output_dir, f"{today_str}-triage.md")
+    with open(local_path, "w") as f:
+        f.write(full_summary)
 
     # Deliver
     if delivery in ("webex", "both") and delivery_space:
