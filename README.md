@@ -24,7 +24,7 @@ A Claude Code plugin that connects to Webex as a conversational "chief of staff"
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/benmyers-cisco/webex-agent.git
+git clone https://github.com/benxmy/webex-agent.git
 cd webex-agent
 python3.12 -m venv .venv
 source .venv/bin/activate
