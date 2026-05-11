@@ -114,6 +114,7 @@ Important context or updates — no action needed, but useful to know.
 
 RULES:
 - ERR ON THE SIDE OF OVER-INFORMING. When in doubt about whether something is relevant, include it. It's better to flag something the user can quickly skip than to miss something important. Only respond with "No items requiring your attention." if the conversation is truly unrelated to their work.
+- ALWAYS include the space name "{space_name}" at the start of each item so the user knows exactly where to find and reply to the conversation
 - Be specific — include names, timestamps, and quote key phrases
 - Draft responses should be concise, professional, and ready to send with minimal editing
 - Don't include items where {user_email} has already responded

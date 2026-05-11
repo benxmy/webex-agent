@@ -67,6 +67,7 @@ When the user asks what needs their attention, what they missed, or for a summar
 
 ### 🔴 Blocked on You (highest priority)
 Someone is waiting for your input, approval, decision, or response. They can't move forward without you. Always include:
+- **The space/channel name** where the conversation is happening
 - Who is waiting and what they need
 - How long they've been waiting
 - A **draft response** they can send immediately
@@ -126,6 +127,7 @@ Read the relevant SKILL.md before executing these workflows.
 
 ## General Rules
 
+- **ALWAYS include the space/channel name with every item** — the user needs to know exactly where to go to reply. Format as `[Space Name]` at the start of each bullet or as a bold header above grouped items. Never omit the space name, even if it seems obvious from context.
 - Always state which space and time range you're analyzing
 - If a space name is ambiguous, list options and ask
 - Group findings by priority (blocked > decisions > opportunities > FYI)
