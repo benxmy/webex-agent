@@ -11,6 +11,7 @@ A Claude Code plugin that connects to Webex as a conversational "chief of staff"
 - **Trainable preferences** — Teach it what's relevant to you over time
 - **Scheduled briefings** — Automated daily triage and weekly retrospectives via cron
 - **Pre-meeting prep** — Pulls Webex DM history with upcoming meeting invitees and sends a Slack briefing
+- **Recording downloads** — List and download your Webex recordings (video + transcript) via the API
 - **Knowledge base** — Extracts and stores insights from weekly retrospectives for future reference
 
 ## Quick start
@@ -98,6 +99,7 @@ Note: Personal tokens expire after 12 hours.
 | `SUMMARY_WEBEX_SPACE` | No | Webex space name to post briefings to |
 | `SUMMARY_EMAIL_TO` | No | Email address for briefing delivery |
 | `SUMMARY_LOOKBACK_H` | No | Override lookback hours for daily summary |
+| `SLACK_USER_ID` | No | Your Slack user ID (for pre-meeting briefing DMs) |
 | `CLAUDE_CODE_USE_BEDROCK` | No | Set to `true` if using Claude via AWS Bedrock |
 | `AWS_PROFILE` | No | AWS profile for Bedrock access |
 
@@ -121,8 +123,8 @@ webex-agent/
     weekly-retrospective/   # Weekly learning extraction methodology
     decision-log/           # Decision capture from conversations
     meeting-debrief/        # Post-meeting structured debriefs
-  webex_client.py           # HTTP client for Webex API
-  preferences.md            # Trainable relevance rules
+  webex_client.py           # HTTP client for Webex API (messages, spaces, recordings)
+  preferences.example.md    # Template for trainable relevance rules (copy to preferences.md)
   knowledge.md              # Persistent insights from retros (gitignored)
   .env.example              # Template for environment variables
 ```
@@ -142,6 +144,8 @@ The MCP server (`servers/webex_mcp.py`) exposes these tools to Claude:
 | `get_preferences` | Read triage relevance rules |
 | `update_preferences` | Train what's relevant to you |
 | `search_knowledge` | Query the personal knowledge base |
+| `list_recordings` | List your Webex recordings with date filters |
+| `download_recording` | Download recording video and/or transcript |
 
 ## The triage framework
 
@@ -153,9 +157,10 @@ The core value of this plugin is how it decides what deserves your attention:
 
 **Priority buckets:**
 1. **Blocked on You** — someone can't move forward without your input (includes draft responses)
-2. **Decisions Made Without You** — things decided that affect your work
-3. **Opportunities to Add Value** — where your expertise could help proactively (includes draft messages)
-4. **FYI** — context only, no action needed
+2. **Waiting on Others** — threads where you've acted and are awaiting a reply
+3. **Decisions Made Without You** — things decided that affect your work
+4. **Opportunities to Add Value** — where your expertise could help proactively (includes draft messages)
+5. **FYI** — context only, no action needed
 
 Results are grouped by priority across all spaces, not per-space — so the most urgent items are always at the top.
 
